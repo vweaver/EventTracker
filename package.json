@@ -1,0 +1,13 @@
+{
+  "name": "event-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Binary event frequency recorder with day-of-week x time-block aggregation. Static web app — plain HTML + ES modules + sqlite-wasm.",
+  "scripts": {
+    "test": "node --test 'test/*.test.js'"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^11.3.0"
+  }
+}
