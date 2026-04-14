@@ -84,14 +84,22 @@ function renderCurrentView() {
 // --- error state -----------------------------------------------------------
 
 function renderUnsupported() {
+  // Guarantee no nav chrome / views leak in the unsupported state.
+  if (tabBar) {
+    tabBar.remove();
+    tabBar = null;
+  }
   root.innerHTML = '';
+  document.body.classList.add('unsupported');
   const box = document.createElement('section');
   box.className = 'error-state';
-  box.innerHTML = `
-    <h1>Storage unavailable</h1>
-    <p>This browser does not support local storage for this app;
-    please update your browser.</p>
-  `;
+  const h1 = document.createElement('h1');
+  h1.textContent = 'Storage unavailable';
+  const p = document.createElement('p');
+  // Exact text per TECH_SPEC.md "Browser support".
+  p.textContent =
+    'This browser does not support local storage for this app; please update your browser.';
+  box.append(h1, p);
   root.appendChild(box);
 }
 
