@@ -121,8 +121,11 @@ completed slice.
 STACK (fixed by TECH_SPEC.md — do not change):
 - Frontend: plain HTML + CSS + ES modules. NO bundler, NO TypeScript
   compile, NO React, NO framework.
-- Storage: @sqlite.org/sqlite-wasm, OPFS VFS, vendored under
-  vendor/sqlite-wasm/ at a pinned version.
+- Storage: @sqlite.org/sqlite-wasm with the opfs-sahpool VFS
+  (NOT the default OPFS VFS — we deploy to GitHub Pages, which can't
+  set COOP/COEP headers, so the SharedArrayBuffer-based VFS would
+  fail). Vendored under vendor/sqlite-wasm/ at a pinned version.
+  See TECH_SPEC.md "Deployment & VFS choice".
 - Testing: node --test against test/*.test.js. better-sqlite3 allowed
   as a dev-only dependency for db.test.js (not shipped to the browser
   since there's no bundler).

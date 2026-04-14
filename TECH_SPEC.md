@@ -15,9 +15,11 @@ and ES modules; any static host (or `python -m http.server`) will run it.
 
 - **Frontend**: plain HTML + CSS + ES modules. No bundler, no transpiler, no
   framework. Loaded directly by the browser via `<script type="module">`.
-- **Storage**: [`@sqlite.org/sqlite-wasm`][sqlite-wasm] with the OPFS VFS for
-  durable, concurrent-safe, on-device SQLite. Vendored into `vendor/` at a
-  pinned version so the app has no runtime network dependency.
+- **Storage**: [`@sqlite.org/sqlite-wasm`][sqlite-wasm] with the
+  **OPFS SyncAccessHandle Pool VFS** (`opfs-sahpool`) for durable,
+  on-device SQLite. Vendored into `vendor/` at a pinned version so the
+  app has no runtime network dependency. See [Deployment & VFS choice](#deployment--vfs-choice)
+  for why `opfs-sahpool` specifically.
 - **Testing**: Node's built-in `node:test` runner. No dev dependencies for
   pure-logic tests; `better-sqlite3` added as a dev-only dependency for DB
   tests (see Testing).
@@ -26,10 +28,57 @@ and ES modules; any static host (or `python -m http.server`) will run it.
 
 ### Browser support
 
-OPFS requires Chromium 108+, Firefox 111+, Safari 17+. If OPFS is
-unavailable, `db.init()` throws a user-visible error ("This browser does not
-support local storage for this app; please update your browser"). No in-memory
-fallback — losing data silently would be worse than failing loudly.
+OPFS requires Chromium 108+, Firefox 111+, Safari 17+. The
+`opfs-sahpool` VFS additionally requires `FileSystemSyncAccessHandle`,
+which is available in the same browser range. If the VFS fails to
+install, `db.init()` throws a user-visible error ("This browser does
+not support local storage for this app; please update your browser").
+No in-memory fallback — losing data silently would be worse than
+failing loudly.
+
+### Deployment & VFS choice
+
+The app is deployed to **GitHub Pages** (branch-deploy from `master`).
+GitHub Pages serves static files and **cannot set custom response
+headers**, which rules out the default `sqlite-wasm` OPFS VFS: that
+VFS runs in a dedicated Worker that uses `SharedArrayBuffer` + `Atomics`
+to synchronize with the main thread, which in turn requires the page
+to be **cross-origin-isolated** (COOP `same-origin` + COEP
+`require-corp`) — headers we can't set on Pages.
+
+The `opfs-sahpool` VFS avoids this entirely: it uses
+`FileSystemSyncAccessHandle` from within a Worker **without** relying on
+`SharedArrayBuffer`, so it works on any origin, including GitHub Pages.
+
+Trade-offs we accept by picking `opfs-sahpool`:
+
+- **One writer process at a time.** The VFS claims a pool of sync
+  access handles; a second tab opening the same origin will fail to
+  open the DB until the first tab releases. Fine for a single-user
+  personal tool; if a user opens a second tab, they get the same
+  "storage unavailable" error as the no-OPFS case.
+- **Fixed-size handle pool.** `opfs-sahpool` preallocates a small
+  pool of files (default 6). For this schema (one tiny table) the
+  default is more than enough.
+- **Non-standard file layout inside OPFS.** The pool stores data in
+  opaque chunk files, not a single `events.sqlite`. The user
+  shouldn't ever need to inspect OPFS directly, and the pool provides
+  an export path if we ever need backups.
+
+Initialization sketch (in `db.js`):
+
+```js
+import sqlite3InitModule from './vendor/sqlite-wasm/jswasm/sqlite3.mjs';
+
+const sqlite3 = await sqlite3InitModule();
+const poolUtil = await sqlite3.installOpfsSAHPoolVfs({
+  name: 'eventtracker-pool',
+});
+const db = new poolUtil.OpfsSAHPoolDb('/events.sqlite');
+```
+
+`installOpfsSAHPoolVfs` throws if the environment can't support it;
+`db.init()` must surface that as the browser-support error above.
 
 ## File layout
 
@@ -72,7 +121,7 @@ All functions are `async`. The module exports:
 
 | Function                           | Returns          | Notes                               |
 | ---------------------------------- | ---------------- | ----------------------------------- |
-| `init()`                           | `void`           | Opens OPFS-backed DB, runs DDL.     |
+| `init()`                           | `void`           | Installs `opfs-sahpool` VFS, opens DB, runs DDL. |
 | `insertEvent(timestamp, value)`    | `id: number`     | `value` coerced to 0/1.             |
 | `updateEvent(id, timestamp, value)`| `void`           | Full replace of both fields.        |
 | `deleteEvent(id)`                  | `void`           | No soft-delete.                     |
