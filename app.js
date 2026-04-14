@@ -83,10 +83,51 @@ function renderLog() {
         <span class="tap-label">Negative</span>
       </button>
     </div>
+    <details class="backdate">
+      <summary class="backdate-summary">
+        <span>Backdate</span>
+        <span class="backdate-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div class="backdate-body">
+        <label class="field">
+          <span class="field-label">Date &amp; time</span>
+          <input id="bd-when" type="datetime-local" class="field-input" />
+        </label>
+        <div class="backdate-buttons">
+          <button
+            id="bd-pos"
+            class="pill pill--pos"
+            type="button"
+          >Positive</button>
+          <button
+            id="bd-neg"
+            class="pill pill--neg"
+            type="button"
+          >Negative</button>
+        </div>
+      </div>
+    </details>
   `;
   root.appendChild(view);
   view.querySelector('#btn-pos').addEventListener('click', () => onLive(1));
   view.querySelector('#btn-neg').addEventListener('click', () => onLive(0));
+
+  const whenInput = view.querySelector('#bd-when');
+  // datetime-local wants YYYY-MM-DDTHH:MM (no seconds required).
+  whenInput.value = nowLocalIso().slice(0, 16);
+  const details = view.querySelector('details.backdate');
+  details.addEventListener('toggle', () => {
+    if (details.open) {
+      // Refresh to current time each time it's re-opened.
+      whenInput.value = nowLocalIso().slice(0, 16);
+    }
+  });
+  view.querySelector('#bd-pos').addEventListener('click', () =>
+    onBackdate(whenInput, 1),
+  );
+  view.querySelector('#bd-neg').addEventListener('click', () =>
+    onBackdate(whenInput, 0),
+  );
 }
 
 async function onLive(value) {
@@ -96,6 +137,23 @@ async function onLive(value) {
     showToast('✓ Saved');
   } catch (err) {
     console.error('[EventTracker] insert failed', err);
+    showToast('Save failed');
+  }
+}
+
+async function onBackdate(input, value) {
+  const raw = input.value;
+  if (!raw) {
+    showToast('Pick a date & time');
+    return;
+  }
+  // datetime-local returns YYYY-MM-DDTHH:MM; normalize to seconds.
+  const ts = raw.length === 16 ? `${raw}:00` : raw;
+  try {
+    await db.insertEvent(ts, value);
+    showToast('✓ Saved');
+  } catch (err) {
+    console.error('[EventTracker] backdate insert failed', err);
     showToast('Save failed');
   }
 }
