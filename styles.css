@@ -427,6 +427,77 @@ details[open] .backdate-chevron { transform: rotate(180deg); }
   color: #fff;
 }
 
+/* Grid view */
+.view--grid { gap: 0.75rem; }
+
+.grid-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 4px;
+  table-layout: fixed;
+}
+
+.grid thead th {
+  font-weight: 500;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.25rem 0;
+}
+
+.grid-corner { width: 3.2rem; }
+
+.grid-row-head {
+  font-weight: 500;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: right;
+  padding-right: 0.4rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.grid-cell {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.35rem 0.25rem;
+  height: 68px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.grid-cell--empty {
+  background: color-mix(in srgb, var(--line) 55%, var(--card));
+  color: var(--muted);
+}
+
+.grid-pct {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #1b1d21;
+}
+.grid-cell--empty .grid-pct { color: var(--muted); font-weight: 500; }
+
+.grid-n {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: rgba(27, 29, 33, 0.72);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.grid-cell--empty .grid-n { color: var(--muted); }
+
 /* Error */
 .error-state {
   max-width: 28rem;

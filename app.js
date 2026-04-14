@@ -4,7 +4,7 @@
 // all pure math to aggregate.js.
 
 import * as db from './db.js';
-import { bucketOf, BLOCKS, DOW_LABELS } from './aggregate.js';
+import { aggregate, bucketOf, bucketKey, BLOCKS, DOW_LABELS } from './aggregate.js';
 
 const root = document.getElementById('app');
 
@@ -34,7 +34,7 @@ function mountChrome() {
   tabBar.innerHTML = `
     <button class="tab" data-view="log" type="button">Log</button>
     <button class="tab" data-view="list" type="button">List</button>
-    <button class="tab" data-view="grid" type="button" disabled>Grid</button>
+    <button class="tab" data-view="grid" type="button">Grid</button>
   `;
   document.body.appendChild(tabBar);
   for (const btn of tabBar.querySelectorAll('.tab')) {
@@ -56,6 +56,7 @@ function setView(name) {
 
 function renderCurrentView() {
   if (currentView === 'list') return renderList();
+  if (currentView === 'grid') return renderGrid();
   return renderLog();
 }
 
@@ -326,6 +327,68 @@ async function onDelete(event) {
 
 function findRowLi(id) {
   return root.querySelector(`.event-row[data-id="${CSS.escape(String(id))}"]`);
+}
+
+// --- grid view -------------------------------------------------------------
+
+async function renderGrid() {
+  root.innerHTML = '';
+  setActiveTab('grid');
+  const view = document.createElement('section');
+  view.className = 'view view--grid';
+  view.innerHTML = `
+    <header class="view-header">
+      <h1 class="view-title">Grid</h1>
+      <p class="view-sub">P(positive) by day &times; time block.</p>
+    </header>
+    <div class="grid-wrap">
+      <table class="grid" aria-label="Positive probability per day and time block">
+        <thead>
+          <tr>
+            <th scope="col" class="grid-corner"></th>
+            ${DOW_LABELS.map((d) => `<th scope="col">${d}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody id="grid-body"></tbody>
+      </table>
+    </div>
+  `;
+  root.appendChild(view);
+
+  const events = await db.listEvents();
+  const agg = aggregate(events);
+  const body = view.querySelector('#grid-body');
+  for (const block of BLOCKS) {
+    const tr = document.createElement('tr');
+    const rowHead = document.createElement('th');
+    rowHead.scope = 'row';
+    rowHead.className = 'grid-row-head';
+    rowHead.textContent = block.label;
+    tr.appendChild(rowHead);
+    for (let dow = 0; dow < 7; dow++) {
+      const cell = agg.get(bucketKey(dow, block.index));
+      tr.appendChild(renderCell(cell));
+    }
+    body.appendChild(tr);
+  }
+}
+
+function renderCell(cell) {
+  const td = document.createElement('td');
+  td.className = 'grid-cell';
+  if (cell.total === 0) {
+    td.classList.add('grid-cell--empty');
+    td.innerHTML = `<div class="grid-pct">—</div><div class="grid-n">n = 0</div>`;
+  } else {
+    const pct = Math.round(cell.p * 100);
+    // Red (0) -> green (120) hue ramp at constant S/L.
+    td.style.backgroundColor = `hsl(${cell.p * 120}, 70%, 85%)`;
+    td.innerHTML = `
+      <div class="grid-pct">${pct}%</div>
+      <div class="grid-n">n = ${cell.total}</div>
+    `;
+  }
+  return td;
 }
 
 // --- formatting helpers ----------------------------------------------------
