@@ -1,28 +1,41 @@
 /* styles.css — mobile-first EventTracker styles.
  *
- * Palette and type are tuned in Slice 8; Slice 1 keeps this minimal
- * but not default-looking.
+ * Utilitarian personal utility look: muted warm neutrals + two
+ * accents for positive/negative. No gradients, no glassmorphism.
  */
 
 :root {
-  --bg: #faf8f4;
+  --bg: #faf7f1;
   --fg: #1b1d21;
   --muted: #6b6f76;
-  --accent: #2a5bd7;
-  --pos: #1f8a4c;
-  --neg: #b33232;
   --card: #ffffff;
-  --line: #e5e2da;
+  --line: #e8e3d8;
+  --line-strong: #c9c3b5;
+  --accent: #2a5bd7;
+  --pos: #0f7a3b;
+  --pos-soft: #d9edc6;
+  --neg: #a8282d;
+  --neg-soft: #f3d2d0;
+  --warn: #a85a00;
   --radius: 12px;
+  --tap-min: 64px;
+  --shadow: 0 1px 0 rgba(20, 18, 12, 0.04), 0 6px 18px rgba(20, 18, 12, 0.06);
+  --font-body: ui-rounded, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text',
+    'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua',
+    'URW Palladio L', Georgia, serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12141a;
-    --fg: #eceef2;
-    --muted: #9aa0ab;
-    --card: #1b1e26;
+    --bg: #13151b;
+    --fg: #ecebe5;
+    --muted: #9a9c9f;
+    --card: #1c1f27;
     --line: #2a2e38;
+    --line-strong: #3b4050;
+    --pos-soft: #1d3a23;
+    --neg-soft: #3a1d1f;
   }
 }
 
@@ -33,17 +46,132 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.4;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: contain;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
 }
 
 #app {
   display: block;
   min-height: 100vh;
-  padding: 1rem;
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  max-width: 720px;
+  margin: 0 auto;
 }
 
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.view-header {
+  padding: 0.25rem 0 0;
+}
+
+.view-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.75rem;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.view-sub {
+  margin: 0.125rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+/* Live Positive / Negative buttons */
+.live-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.tap {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--fg);
+  border-radius: var(--radius);
+  min-height: 140px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform 120ms ease, background-color 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tap:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+.tap--pos {
+  background: var(--pos-soft);
+  border-color: color-mix(in srgb, var(--pos) 40%, var(--line));
+}
+.tap--neg {
+  background: var(--neg-soft);
+  border-color: color-mix(in srgb, var(--neg) 40%, var(--line));
+}
+
+.tap-glyph {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  line-height: 1;
+  font-weight: 600;
+}
+.tap--pos .tap-glyph { color: var(--pos); }
+.tap--neg .tap-glyph { color: var(--neg); }
+
+.tap-label {
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(8px);
+  background: var(--fg);
+  color: var(--bg);
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 40;
+  box-shadow: var(--shadow);
+}
+.toast--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Error */
 .error-state {
   max-width: 28rem;
   margin: 4rem auto;
@@ -51,19 +179,14 @@ html, body {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
-
 .error-state h1 {
   margin: 0 0 0.5rem;
-  font-size: 1.125rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
 }
-
 .error-state p {
   margin: 0;
   color: var(--muted);
-}
-
-.boot {
-  color: var(--muted);
-  padding: 1rem;
 }
