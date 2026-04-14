@@ -19,7 +19,12 @@ async function start() {
     return;
   }
   mountChrome();
-  renderCurrentView();
+  window.addEventListener('hashchange', onHashChange);
+  if (!readViewFromHash()) {
+    // No/unknown hash → default to log without adding history entry.
+    history.replaceState(null, '', '#/log');
+  }
+  onHashChange();
 }
 
 // --- chrome (nav) ----------------------------------------------------------
@@ -40,17 +45,33 @@ function mountChrome() {
   for (const btn of tabBar.querySelectorAll('.tab')) {
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
-      setView(btn.dataset.view);
+      navigate(btn.dataset.view);
     });
   }
 }
 
+const KNOWN_VIEWS = new Set(['log', 'list', 'grid']);
 let currentView = 'log';
-function setView(name) {
-  currentView = name;
-  for (const btn of tabBar.querySelectorAll('.tab')) {
-    btn.classList.toggle('tab--active', btn.dataset.view === name);
+
+function readViewFromHash() {
+  const m = (location.hash || '').match(/^#\/(log|list|grid)$/);
+  if (!m) return null;
+  return m[1];
+}
+
+function navigate(view) {
+  if (!KNOWN_VIEWS.has(view)) view = 'log';
+  const target = `#/${view}`;
+  if (location.hash === target) {
+    renderCurrentView();
+    return;
   }
+  location.hash = target; // triggers hashchange → onHashChange
+}
+
+function onHashChange() {
+  const v = readViewFromHash() || 'log';
+  currentView = v;
   renderCurrentView();
 }
 
