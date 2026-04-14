@@ -3,8 +3,6 @@
 // Pure data layer: no DOM, no view state. See TECH_SPEC.md
 // "CRUD API (`db.js`)" and "Deployment & VFS choice" for the why
 // behind the opfs-sahpool VFS choice.
-//
-// Slice 1: init + listEvents stub. Full CRUD arrives in Slice 2.
 
 import sqlite3InitModule from './vendor/sqlite-wasm/jswasm/sqlite3.mjs';
 import { DDL, SQL } from './sql.js';
@@ -58,6 +56,37 @@ function requireDb() {
   return _db;
 }
 
+/**
+ * Insert a new event. Returns the new row id.
+ * @param {string} timestamp ISO-8601 string, naive (no tz).
+ * @param {boolean|number} value coerced to 0/1.
+ */
+export async function insertEvent(timestamp, value) {
+  const db = requireDb();
+  const v = value ? 1 : 0;
+  db.exec({ sql: SQL.insert, bind: [timestamp, v] });
+  // last_insert_rowid() is scoped per-connection; fine for single-writer VFS.
+  const [row] = db.exec({
+    sql: SQL.lastRowid,
+    returnValue: 'resultRows',
+    rowMode: 'object',
+  });
+  return Number(row.id);
+}
+
+/** Full replace of both timestamp and value for the given id. */
+export async function updateEvent(id, timestamp, value) {
+  const db = requireDb();
+  const v = value ? 1 : 0;
+  db.exec({ sql: SQL.update, bind: [timestamp, v, id] });
+}
+
+/** Hard delete. */
+export async function deleteEvent(id) {
+  const db = requireDb();
+  db.exec({ sql: SQL.delete, bind: [id] });
+}
+
 /** List all events, ordered timestamp DESC, id DESC. */
 export async function listEvents() {
   const db = requireDb();
@@ -66,6 +95,7 @@ export async function listEvents() {
     returnValue: 'resultRows',
     rowMode: 'object',
   });
+  // sqlite-wasm returns numbers; keep value strictly 0/1.
   return rows.map((r) => ({
     id: Number(r.id),
     timestamp: String(r.timestamp),
