@@ -96,9 +96,9 @@ function renderUnsupported() {
   const h1 = document.createElement('h1');
   h1.textContent = 'Storage unavailable';
   const p = document.createElement('p');
-  // Exact text per TECH_SPEC.md "Browser support".
+  // Exact text per TECH_SPEC.md "Error state".
   p.textContent =
-    'This browser does not support local storage for this app; please update your browser.';
+    "This browser doesn't support local storage. Please use a current version of Chrome, Firefox, or Brave.";
   box.append(h1, p);
   root.appendChild(box);
 }
