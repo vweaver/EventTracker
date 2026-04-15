@@ -1,0 +1,19 @@
+{
+  "name": "EventTracker",
+  "short_name": "EventTracker",
+  "description": "Record binary events and see P(positive) across a 7-day × 4-block grid.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf7f1",
+  "theme_color": "#111418",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

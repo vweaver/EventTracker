@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="EventTracker">
+  <!-- Background: warm neutral matching the app palette. -->
+  <rect width="512" height="512" rx="96" ry="96" fill="#faf7f1"/>
+  <!-- 7x4 grid stripe hint. Kept geometric (no gradients, no AI slop). -->
+  <g transform="translate(64 88)" fill="#e8e3d8">
+    <rect x="0" y="0" width="52" height="48" rx="8"/>
+    <rect x="58" y="0" width="52" height="48" rx="8"/>
+    <rect x="116" y="0" width="52" height="48" rx="8"/>
+    <rect x="174" y="0" width="52" height="48" rx="8" fill="#d9edc6"/>
+    <rect x="232" y="0" width="52" height="48" rx="8"/>
+    <rect x="290" y="0" width="52" height="48" rx="8" fill="#f3d2d0"/>
+    <rect x="348" y="0" width="52" height="48" rx="8"/>
+
+    <rect x="0" y="56" width="52" height="48" rx="8"/>
+    <rect x="58" y="56" width="52" height="48" rx="8" fill="#d9edc6"/>
+    <rect x="116" y="56" width="52" height="48" rx="8"/>
+    <rect x="174" y="56" width="52" height="48" rx="8"/>
+    <rect x="232" y="56" width="52" height="48" rx="8" fill="#d9edc6"/>
+    <rect x="290" y="56" width="52" height="48" rx="8"/>
+    <rect x="348" y="56" width="52" height="48" rx="8" fill="#f3d2d0"/>
+  </g>
+  <!-- Bold "+" accent (positive logging) in serif display face. -->
+  <g transform="translate(256 340)" fill="#0f7a3b" font-family="'Iowan Old Style','Palatino Linotype',Palatino,serif" font-weight="700" font-size="180" text-anchor="middle">
+    <text x="0" y="0" dominant-baseline="middle">+</text>
+  </g>
+</svg>
