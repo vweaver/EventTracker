@@ -206,10 +206,28 @@ TESTING PROCESS:
 1. Read all inputs above.
 2. Run the unit tests: `node --test test/`. Any failure is an
    automatic FAIL for Functionality & Reliability.
-3. Serve the app (`python3 -m http.server 8000` from the repo root)
-   and open it in a Chromium Playwright session at mobile viewport
-   (e.g. iPhone 14 preset). All testing is mobile-first.
-4. Walk the three views and exercise every spec requirement:
+3. **Deployment check (mandatory, runs before local testing).**
+   The app is deployed to GitHub Pages at
+   `https://vweaver.github.io/EventTracker/`. Fetch that URL with
+   `curl -sSL -w '\n---\nstatus: %{http_code}\n'`.
+   - If the status is not 200, or the body does not contain the
+     expected markers (`<title>EventTracker</title>`, a reference to
+     `./app.js`, and a reference to `./vendor/sqlite-wasm/`), that is
+     an **automatic FAIL for Spec Conformance** regardless of how the
+     local build looks. A green local test run with a broken public
+     deploy is worthless.
+   - If the fetch itself is blocked by the sandbox (e.g. "Host not in
+     allowlist"), record the verdict as **BLOCKED — deploy
+     unverifiable**, do not issue a PASS, and list the blocker
+     first in the report. Ask the orchestrator to verify the URL
+     externally before the round can close.
+   - If the fetch succeeds, also fetch `./app.js`,
+     `./vendor/sqlite-wasm/jswasm/sqlite3.mjs`, and one other critical
+     asset to confirm they are served (not just `index.html`).
+4. Serve the app locally (`python3 -m http.server 8000` from the repo
+   root) and open it in a Chromium Playwright session at mobile
+   viewport (e.g. iPhone 14 preset). All testing is mobile-first.
+5. Walk the three views and exercise every spec requirement:
    - Log view: Live mode — tap Positive, tap Negative; verify they
      persist by reloading the page and checking the list. Backdate —
      pick a past datetime, submit; verify it appears in the list with
@@ -221,16 +239,16 @@ TESTING PROCESS:
      with n=0 show "—". Cells with events show NN% and n=<count>.
      Create events that should change a cell's P, then revisit grid
      and verify the cell updated.
-5. Edge cases:
+6. Edge cases:
    - First load with empty DB: grid renders all 28 cells with "—".
    - Event at exactly 09:00:00 → block 1 (09–12), not block 0.
    - Event at 23:59:59 Saturday → (Sat, block 3).
    - Refresh after every CRUD op — OPFS persistence must hold.
    - Browser without OPFS (simulate by stubbing) → visible error,
      not a silent fallback.
-6. Check the console for errors across all interactions. Any
+7. Check the console for errors across all interactions. Any
    uncaught error = deduction.
-7. Visual check at mobile viewport:
+8. Visual check at mobile viewport:
    - Tap targets look ≥ 44px.
    - Palette and typography match styles.css and feel considered.
    - Grid uses the viewport (not floating in whitespace).
