@@ -5,46 +5,45 @@ Later slices assume all earlier slices still pass their acceptance criteria.
 References to the tech spec use headings from [`TECH_SPEC.md`](../TECH_SPEC.md);
 product rules cite [`PRD.md`](../PRD.md).
 
-Stack is fixed: plain HTML + ES modules, sqlite-wasm with `opfs-sahpool`,
-`node:test` with `better-sqlite3` as a dev-only dependency. See TECH_SPEC.md
-"Tech stack" and "Deployment & VFS choice". Do not deviate.
+Stack is fixed: plain HTML + ES modules, IndexedDB for storage, direct
+`fetch` to `api.telegram.org` for optional sync, `node:test` with
+`fake-indexeddb` as the only dev dependency. See TECH_SPEC.md "Tech stack"
+and "Deployment". Do not deviate.
 
 ---
 
-## Slice 1 — Scaffolding, vendored sqlite-wasm, `db.init()` + empty list
+## Slice 1 — Scaffolding, IndexedDB `db.init()` + empty list
 
-**Goal.** Stand up the file skeleton from TECH_SPEC.md "File layout",
-vendor sqlite-wasm, and prove the DB opens end-to-end with the
-`opfs-sahpool` VFS plus a working `node:test` path using `better-sqlite3`.
+**Goal.** Stand up the file skeleton from TECH_SPEC.md "File layout"
+and prove the DB opens end-to-end with IndexedDB, plus a working
+`node:test` path using `fake-indexeddb`.
 
 **Scope.**
-- Create `index.html`, `app.js`, `db.js`, `aggregate.js`, `styles.css` as
-  empty-but-valid stubs per TECH_SPEC.md "File layout".
-- Vendor `@sqlite.org/sqlite-wasm` at a pinned version under
-  `vendor/sqlite-wasm/jswasm/` (files referenced by the init sketch in
-  TECH_SPEC.md "Deployment & VFS choice").
-- Implement `db.init()` to install `opfs-sahpool` VFS, open the DB, and
-  run the DDL from TECH_SPEC.md "Data model" (table + index).
-- Implement `listEvents()` stub sufficient for the empty-DB test.
-- Create `package.json` with `"test": "node --test test/"`, dev
-  dependency `better-sqlite3` only, and `"type": "module"`.
-- `test/db.test.js` runs the same DDL + `listEvents()` query against
-  `better-sqlite3` (see TECH_SPEC.md "Testing" — production code does not
-  import `better-sqlite3`; tests share the SQL, not the driver).
+- Create `index.html`, `app.js`, `db.js`, `aggregate.js`, `styles.css`
+  per TECH_SPEC.md "File layout".
+- Implement `db.init()` to open IndexedDB (`eventtracker`, version 1),
+  create the `events` object store (keyPath `id`, autoIncrement) and the
+  `by_timestamp` index on `timestamp`. Call
+  `navigator.storage.persist()` after the DB opens; swallow errors.
+- Implement `listEvents()` via a cursor on `by_timestamp` in `prev`
+  direction, with a stable final sort on `(timestamp desc, id desc)`.
+- Create `package.json` with
+  `"test": "node --test 'test/*.test.js'"`, dev dependency
+  `fake-indexeddb` only, and `"type": "module"`.
+- `test/db.test.js` imports the real `db.js` module on top of
+  `fake-indexeddb/auto`.
 - `index.html` loads `app.js` as an ES module and calls `db.init()`.
 
 **Acceptance criteria.**
-- Given a fresh clone, when the evaluator runs `node --test test/`, then
-  `db.test.js` scenario 1 (fresh DB → `listEvents()` returns `[]`) passes
-  and the full run is green.
+- Given a fresh clone, when the evaluator runs
+  `node --test 'test/*.test.js'`, then `db.test.js` scenario 1
+  (fresh DB → `listEvents()` returns `[]`) passes and the full run is
+  green.
 - Given the app served by `python3 -m http.server 8000`, when the
-  evaluator opens `/` in a supported Chromium, then the page loads with
+  evaluator opens `/` in a supported browser, then the page loads with
   **no console errors** and `db.init()` resolves.
-- Given the repo, when the evaluator inspects it, then `vendor/sqlite-wasm/`
-  contains the pinned `opfs-sahpool`-capable build and **no** network
-  fetch for sqlite happens at runtime (TECH_SPEC.md "Tech stack" — vendored).
 - Given `package.json`, when the evaluator inspects it, then
-  `better-sqlite3` is under `devDependencies` only and no other runtime
+  `fake-indexeddb` is under `devDependencies` only and no other runtime
   dependencies are listed.
 
 ---
@@ -274,37 +273,92 @@ guidance in CLAUDE.md.
 
 ---
 
-## Slice 9 — OPFS-unavailable error state
+## Slice 9 — IndexedDB-unavailable error state
 
-**Goal.** Close TECH_SPEC.md "Browser support": if the VFS cannot
-install, surface a user-visible error and do **not** fall back to
+**Goal.** Close TECH_SPEC.md "Browser support": if `indexedDB.open`
+rejects, surface a user-visible error and do **not** fall back to
 in-memory storage (PRD.md requires durable local storage).
 
 **Scope.**
-- `db.init()` catches a failed `installOpfsSAHPoolVfs` or
-  `OpfsSAHPoolDb` open and rethrows a tagged error.
-- `app.js` renders a full-screen error message: "This browser does not
-  support local storage for this app; please update your browser"
-  (TECH_SPEC.md "Browser support").
-- No silent in-memory fallback. The Log, List, and Grid views are
-  hidden while in the error state.
+- `db.init()` catches a failed open and rethrows a tagged
+  `StorageUnavailableError`.
+- `app.js` renders a full-screen error message: "This browser doesn't
+  support local storage. Please use a current version of Chrome,
+  Firefox, or Brave."
+- No silent in-memory fallback. The Log, List, Grid, and Settings
+  views are hidden while in the error state.
 
 **Acceptance criteria.**
-- Given a browser where `installOpfsSAHPoolVfs` is stubbed to throw,
-  when the page loads, then the user sees the exact unsupported-browser
-  message and the normal views are not rendered.
-- Given the same failure mode, when the evaluator inspects the DOM and
-  console, then no events can be inserted and no in-memory shim is in
-  use (no writes succeed anywhere).
-- Given a supported browser, when the page loads, then the error state
-  is absent and all prior slices' acceptance criteria still hold.
-- Given `node --test test/`, all tests remain green.
+- Given a browser where `indexedDB.open` throws, when the page loads,
+  then the user sees the unsupported-browser message and the normal
+  views are not rendered.
+- Given the same failure mode, no events can be inserted and no
+  in-memory shim is in use.
+- Given a supported browser, the error state is absent and all prior
+  slices' acceptance criteria hold.
+- Given `node --test 'test/*.test.js'`, all tests remain green.
+
+---
+
+## Slice 10 — Settings view + Telegram sync
+
+**Goal.** Add the optional Telegram-backed sync described in PRD.md
+"Sync (optional)" and TECH_SPEC.md "Telegram sync".
+
+**Scope.**
+- New `sync.js` module exporting `pushSnapshot`, `pullLatest`, `getMe`,
+  `detectChatId`, and the pure `mergeSnapshots(local, remote)` helper.
+  No DOM, no IDB imports.
+- Extend `db.js` with `exportAll()`, `replaceAll(events)`, and the
+  `getSetting` / `setSetting` / `deleteSetting` trio (new `settings`
+  object store added to the initial DB version; DB version stays 1
+  because the schema is fresh).
+- Add Settings view (`#/settings`, fourth tab): bot token input
+  (password), chat ID input (number), buttons for Test connection,
+  Detect chat ID, Sync now, Forget credentials, plus a status badge.
+- `app.js` auto-push debounce: 5000 ms after any CRUD. No-op if
+  credentials are absent. Doesn't fire during an in-flight pull+merge.
+- `app.js` auto-pull on start if credentials exist.
+- `test/sync.test.js` covers `pushSnapshot` request shape,
+  `mergeSnapshots` cases (insert, identical, remote newer, local
+  newer, tie, local-only preserved).
+
+**Acceptance criteria.**
+- Given credentials are not configured, `Sync now` makes no network
+  call and auto-push stays silent.
+- Given credentials configured and stubbed `fetch`, `pushSnapshot`
+  builds a multipart POST whose caption starts with `eventtracker-`
+  and whose `document` is a JSON blob containing only events (no
+  token, no chat ID).
+- Given `mergeSnapshots` fed an (id=1 local, id=1 remote with later
+  timestamp, id=2 remote-only, id=3 local-only) pair, the result
+  contains all three ids, added=1, updated=1, removed=0.
+- Given `node --test 'test/*.test.js'`, all tests remain green.
+
+---
+
+## Slice 11 — PWA manifest
+
+**Goal.** Make the app installable on Android as a minimum-viable PWA.
+
+**Scope.**
+- Add `manifest.webmanifest` (name, short_name, start_url `./`,
+  display `standalone`, theme_color matching the CSS palette, icon
+  at `assets/icon.svg`).
+- Add `<link rel="manifest" href="./manifest.webmanifest">` in
+  `index.html`.
+- No service worker.
+
+**Acceptance criteria.**
+- `curl -s http://localhost:8000/manifest.webmanifest` returns 200 and
+  valid JSON.
+- The served `index.html` references `./manifest.webmanifest`.
 
 ---
 
 ## Done definition
 
-All nine slices pass their acceptance criteria, `node --test test/` is
-green, the app serves cleanly from `python3 -m http.server 8000` at a
-mobile viewport with no console errors, and no feature outside PRD.md
-"Out of Scope" has been added.
+All 11 slices pass their acceptance criteria,
+`node --test 'test/*.test.js'` is green, the app serves cleanly from
+`python3 -m http.server 8000` at a mobile viewport with no console
+errors, and no feature outside PRD.md "Out of Scope" has been added.

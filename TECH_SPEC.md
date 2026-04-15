@@ -7,127 +7,117 @@ PRD defines *what* to build. Where the two disagree, the PRD wins.
 
 A static single-page web app (no backend, no build step) that records binary
 events and visualizes P(positive) across a 7-day × 4-block grid. Data is
-persisted entirely on-device via SQLite compiled to WebAssembly, stored in
-the Origin Private File System (OPFS). The app is served as plain HTML, CSS,
-and ES modules; any static host (or `python -m http.server`) will run it.
+persisted entirely on-device via IndexedDB. Credentials for optional
+Telegram-based sync live in a separate IndexedDB object store, so snapshots
+sent to Telegram only ever contain events — never the bot token or chat ID.
+The app is served as plain HTML, CSS, and ES modules; any static host (or
+`python -m http.server`) will run it.
 
 ## Tech stack
 
 - **Frontend**: plain HTML + CSS + ES modules. No bundler, no transpiler, no
   framework. Loaded directly by the browser via `<script type="module">`.
-- **Storage**: [`@sqlite.org/sqlite-wasm`][sqlite-wasm] with the
-  **OPFS SyncAccessHandle Pool VFS** (`opfs-sahpool`) for durable,
-  on-device SQLite. Vendored into `vendor/` at a pinned version so the
-  app has no runtime network dependency. See [Deployment & VFS choice](#deployment--vfs-choice)
-  for why `opfs-sahpool` specifically.
-- **Testing**: Node's built-in `node:test` runner. No dev dependencies for
-  pure-logic tests; `better-sqlite3` added as a dev-only dependency for DB
-  tests (see Testing).
-
-[sqlite-wasm]: https://sqlite.org/wasm/doc/trunk/index.md
+- **Storage**: **IndexedDB** via a tiny hand-rolled promise wrapper around
+  `indexedDB.open('eventtracker', 1)`. No third-party dependency (no idb,
+  no Dexie). `init()` also calls `navigator.storage.persist()` to request
+  persistent storage; a rejection is logged and ignored.
+- **Sync (optional)**: Direct `fetch` against `https://api.telegram.org/`.
+  No proxy, no backend. Multipart JSON snapshot upload via `sendDocument`;
+  pull via `getUpdates` + `getFile`.
+- **Testing**: Node's built-in `node:test` runner. `fake-indexeddb` is a
+  dev-only dependency used by `test/db.test.js` to exercise the exact same
+  `db.js` module in Node. `test/sync.test.js` uses a stubbed `fetch` to
+  exercise `sync.js` and the pure `mergeSnapshots` helper.
 
 ### Browser support
 
-OPFS requires Chromium 108+, Firefox 111+, Safari 17+. The
-`opfs-sahpool` VFS additionally requires `FileSystemSyncAccessHandle`,
-which is available in the same browser range. If the VFS fails to
-install, `db.init()` throws a user-visible error ("This browser does
-not support local storage for this app; please update your browser").
-No in-memory fallback — losing data silently would be worse than
-failing loudly.
+IndexedDB is available in every browser EventTracker targets (Chromium,
+Firefox, Safari, Brave — desktop and Android). If `indexedDB.open` rejects
+(rare: strict private-mode policies on some browsers), `db.init()` throws a
+tagged `StorageUnavailableError` and `app.js` surfaces the error screen
+described in [Error state](#error-state). No in-memory fallback — losing
+data silently would be worse than failing loudly.
 
-### Deployment & VFS choice
+### Deployment
 
-The app is deployed to **GitHub Pages** (branch-deploy from `master`).
-GitHub Pages serves static files and **cannot set custom response
-headers**, which rules out the default `sqlite-wasm` OPFS VFS: that
-VFS runs in a dedicated Worker that uses `SharedArrayBuffer` + `Atomics`
-to synchronize with the main thread, which in turn requires the page
-to be **cross-origin-isolated** (COOP `same-origin` + COEP
-`require-corp`) — headers we can't set on Pages.
-
-The `opfs-sahpool` VFS avoids this entirely: it uses
-`FileSystemSyncAccessHandle` from within a Worker **without** relying on
-`SharedArrayBuffer`, so it works on any origin, including GitHub Pages.
-
-Trade-offs we accept by picking `opfs-sahpool`:
-
-- **One writer process at a time.** The VFS claims a pool of sync
-  access handles; a second tab opening the same origin will fail to
-  open the DB until the first tab releases. Fine for a single-user
-  personal tool; if a user opens a second tab, they get the same
-  "storage unavailable" error as the no-OPFS case.
-- **Fixed-size handle pool.** `opfs-sahpool` preallocates a small
-  pool of files (default 6). For this schema (one tiny table) the
-  default is more than enough.
-- **Non-standard file layout inside OPFS.** The pool stores data in
-  opaque chunk files, not a single `events.sqlite`. The user
-  shouldn't ever need to inspect OPFS directly, and the pool provides
-  an export path if we ever need backups.
-
-Initialization sketch (in `db.js`):
-
-```js
-import sqlite3InitModule from './vendor/sqlite-wasm/jswasm/sqlite3.mjs';
-
-const sqlite3 = await sqlite3InitModule();
-const poolUtil = await sqlite3.installOpfsSAHPoolVfs({
-  name: 'eventtracker-pool',
-});
-const db = new poolUtil.OpfsSAHPoolDb('/events.sqlite');
-```
-
-`installOpfsSAHPoolVfs` throws if the environment can't support it;
-`db.init()` must surface that as the browser-support error above.
+The app is deployed to **GitHub Pages** (branch-deploy from `master`) at
+`https://vweaver.github.io/EventTracker/`. GitHub Pages serves static files
+only; no custom headers. That is fine: IndexedDB needs no special headers,
+no cross-origin isolation, no SharedArrayBuffer. The previous implementation
+used `sqlite-wasm` with the `opfs-sahpool` VFS, which broke on Brave Android
+in practice — hence the pivot to IndexedDB.
 
 ## File layout
 
 ```
-/index.html            # single page, three views: Log / List / Grid
-/app.js                # view routing + event handlers (only file touching DOM)
-/db.js                 # SQLite init, schema, CRUD
-/aggregate.js          # pure functions: bucket mapping, P(positive) calc
-/styles.css            # mobile-first styles
-/vendor/sqlite-wasm/   # pinned sqlite-wasm build (jswasm/ contents)
+/index.html                # single page, four views: Log / List / Grid / Settings
+/app.js                    # view routing + event handlers (only file touching DOM)
+/db.js                     # IndexedDB init + CRUD + settings access
+/aggregate.js              # pure functions: bucket mapping, P(positive) calc
+/sync.js                   # pure network layer for Telegram + mergeSnapshots
+/styles.css                # mobile-first styles
+/manifest.webmanifest      # PWA manifest (installable on Android)
+/assets/icon.svg           # app icon (referenced by manifest; SVG for crisp sizing)
 /test/
-  aggregate.test.js    # node:test — pure logic
-  db.test.js           # node:test — CRUD against better-sqlite3
-/package.json          # dev-only: better-sqlite3, test script
+  aggregate.test.js        # node:test — pure logic
+  db.test.js               # node:test — CRUD against fake-indexeddb
+  sync.test.js             # node:test — mergeSnapshots + fetch stub
+/package.json              # dev-only: fake-indexeddb, test script
 ```
 
-Rationale: one JS file per responsibility. `aggregate.js` is pure and
-trivially testable. `db.js` owns all SQL. `app.js` is the only module that
-touches the DOM.
+Rationale: one module per responsibility. `aggregate.js` and `sync.js` are
+pure and trivially testable. `db.js` owns all storage. `app.js` is the only
+module that touches the DOM.
 
 ## Data model
 
-```sql
-CREATE TABLE IF NOT EXISTS events (
-  id        INTEGER PRIMARY KEY AUTOINCREMENT,
-  timestamp TEXT    NOT NULL,           -- ISO-8601 local, no tz suffix
-  value     INTEGER NOT NULL CHECK(value IN (0, 1))
-);
-CREATE INDEX IF NOT EXISTS events_ts ON events(timestamp);
-```
+Two IndexedDB object stores, both on database `eventtracker` (version 1):
 
-- `timestamp` is stored as a naive ISO-8601 string (`YYYY-MM-DDTHH:MM:SS`)
-  produced from the device clock. Per the PRD, timezones are out of scope.
-- `value` is `0` / `1` (JS booleans are coerced at the DB boundary).
-- Index on `timestamp` keeps the reverse-chron list query cheap.
+- `events` — `{ keyPath: 'id', autoIncrement: true }`, with a single index
+  `by_timestamp` on the `timestamp` field. Each record:
+
+  ```js
+  { id: number, timestamp: string, value: 0 | 1 }
+  ```
+
+  - `timestamp` is a naive ISO-8601 string (`YYYY-MM-DDTHH:MM:SS`) produced
+    from the device clock. Per the PRD, timezones are out of scope.
+  - `value` is normalized to `0` / `1` at the storage boundary.
+
+- `settings` — `{ keyPath: 'key' }`. Each record: `{ key: string, value: any }`.
+  Used for the Telegram bot token, chat ID, and the `deviceTag` (a short
+  random suffix tagged onto outgoing snapshot captions so the user can tell
+  devices apart in their Telegram chat).
+
+The two stores are deliberately separate: `exportAll()` only touches
+`events`, so credentials cannot leak into a pushed snapshot.
 
 ## CRUD API (`db.js`)
 
 All functions are `async`. The module exports:
 
-| Function                           | Returns          | Notes                               |
-| ---------------------------------- | ---------------- | ----------------------------------- |
-| `init()`                           | `void`           | Installs `opfs-sahpool` VFS, opens DB, runs DDL. |
-| `insertEvent(timestamp, value)`    | `id: number`     | `value` coerced to 0/1.             |
-| `updateEvent(id, timestamp, value)`| `void`           | Full replace of both fields.        |
-| `deleteEvent(id)`                  | `void`           | No soft-delete.                     |
-| `listEvents()`                     | `Event[]`        | Ordered `timestamp DESC, id DESC`.  |
+| Function                           | Returns          | Notes                                        |
+| ---------------------------------- | ---------------- | -------------------------------------------- |
+| `init()`                           | `void`           | Opens IndexedDB, creates stores/indexes, requests persistent storage. |
+| `insertEvent(timestamp, value)`    | `id: number`     | `value` coerced to 0/1.                      |
+| `updateEvent(id, timestamp, value)`| `void`           | Full replace of both fields.                 |
+| `deleteEvent(id)`                  | `void`           | No soft-delete.                              |
+| `listEvents()`                     | `Event[]`        | Ordered `timestamp DESC, id DESC`.           |
+| `exportAll()`                      | `Event[]`        | Same shape as `listEvents()`; used by sync.  |
+| `replaceAll(events)`               | `void`           | Single transaction: clear + put each. Used by merge. |
+| `getSetting(key)`                  | `any`            | `undefined` if missing.                      |
+| `setSetting(key, value)`           | `void`           | Upserts into `settings`.                     |
+| `deleteSetting(key)`               | `void`           | Removes a key from `settings`.               |
 
 `Event = { id: number, timestamp: string, value: 0 | 1 }`.
+
+`listEvents()` opens a cursor on `by_timestamp` in `prev` direction into an
+array, then runs a final stable sort on `(timestamp desc, id desc)` to match
+the old sqlite `ORDER BY timestamp DESC, id DESC` semantics exactly (the
+cursor alone ties on timestamp, insertion-order).
+
+`StorageUnavailableError` is thrown from `init()` when IndexedDB is
+unavailable or the open request errors.
 
 ## Bucket mapping (`aggregate.js`, pure)
 
@@ -151,62 +141,127 @@ Block boundaries use `date.getHours()` with half-open intervals:
 
 Day-of-week uses `date.getDay()` directly (Sun=0).
 
+## Telegram sync (`sync.js` + `mergeSnapshots`)
+
+`sync.js` is pure network + data; it does not touch the DOM and does not
+import `db.js` for its own state. `app.js` orchestrates sync by reading
+events via `db.exportAll()` / writing via `db.replaceAll()`.
+
+### API
+
+- `pushSnapshot({ token, chatId, events, deviceTag })`
+  → `{ ok: true, messageId: number }` on success.
+  Posts `multipart/form-data` to
+  `https://api.telegram.org/bot<TOKEN>/sendDocument`:
+  - `chat_id`: the numeric chat id
+  - `document`: a `Blob` of the events JSON, filename `eventtracker.json`,
+    MIME `application/json`
+  - `caption`: `eventtracker-<isoTimestamp>-<deviceTag>` (plain text only;
+    no token, no secrets)
+
+- `pullLatest({ token, chatId })`
+  → `{ events, messageId, capturedAt } | null` when no snapshot is found.
+  Calls `getUpdates?offset=-100&timeout=0` (returns the last 100 updates
+  regardless of the 24h default window), finds the most-recent update
+  where `message.chat.id === chatId`, `message.document.mime_type` is
+  `application/json`, and the caption starts with `eventtracker-`.
+  Downloads the file via `getFile` + the `https://api.telegram.org/file/...`
+  endpoint and parses it as JSON.
+
+- `getMe({ token })` → `{ ok, result }` — used by the Settings "Test
+  connection" button.
+
+- `detectChatId({ token })` → `number | null` — wraps `getUpdates` and
+  returns the most-recent message's `chat.id` for the user to confirm.
+
+### Merge policy (`mergeSnapshots(local, remote)`, pure)
+
+Exported from `sync.js` so it can be unit-tested without stubbing `fetch`.
+Keys events by `id`:
+
+- Unknown ids from remote are **inserted**.
+- Ids present in both sides with differing payload: prefer the side whose
+  `timestamp` is later (lexicographic comparison on the ISO-8601 string);
+  ties prefer remote.
+- Ids present locally but absent remotely are **preserved** — a one-way
+  merge. Removing locally because a peer didn't know about the row would
+  be unsafe for a sync-assist tool.
+
+Returns `{ events, added, updated, removed }` where `events` is the merged
+set (sorted the same way as `listEvents()`), and `added`/`updated`/`removed`
+are integers for a short status line in the UI. `removed` is always 0 in
+the current merge policy, but is returned for future compatibility.
+
+### Credentials
+
+The bot token, chat ID, and `deviceTag` live in the `settings` object store.
+They are never written into `events` or into a pushed snapshot. "Forget
+credentials" removes them from `settings` without touching `events`.
+
+### Auto-sync in `app.js`
+
+- **Auto-push**: module-level debounce handle; every CRUD schedules a push
+  5000 ms later and resets the timer. If credentials aren't configured, the
+  push is a no-op. Never fires during an in-flight pull+merge.
+- **Auto-pull**: on app start, if credentials exist, `app.js` runs a pull +
+  merge before the first view renders.
+- **Settings view** shows a small status badge: `Idle / Syncing /
+  Last synced <relative> / Error: <short message>`. No toast spam.
+
 ## Views
 
-Single `index.html` with three sections toggled by a bottom tab bar (thumb
+Single `index.html` with four sections toggled by a bottom tab bar (thumb
 reach on mobile). Routing via `location.hash` so back-button works:
-`#/log`, `#/list`, `#/grid`. Default is `#/log`.
+`#/log`, `#/list`, `#/grid`, `#/settings`. Default is `#/log`.
 
 ### Log view (`#/log`)
 
 - Two large buttons: **Positive** (green) and **Negative** (red), each ≥ 64px
   tall for tap targets.
-- Tap → `db.insertEvent(new Date().toISOString(), 1|0)` → brief "✓ Saved"
-  toast. No modal, no confirmation. Must feel instant.
-- Below: a "Backdate" disclosure. When expanded:
-  - `<input type="datetime-local">` defaulting to now.
-  - Same Positive / Negative buttons, which use the picker's value instead
-    of `new Date()`.
+- Tap → `db.insertEvent(now, 1|0)` → brief "✓ Saved" toast. No modal.
+- Below: a "Backdate" disclosure with a `<input type="datetime-local">` and
+  the same Positive / Negative pair.
 
 ### List view (`#/list`)
 
 - Reverse-chron `<ul>` from `db.listEvents()`.
-- Each row:
-  - Timestamp (formatted `Mon 14 Apr 2026 · 09:12`)
-  - Value badge (green "+" or red "−")
-  - Bucket label (e.g. "Mon · 09–12")
-  - **Edit** button → row expands into an inline form with a
-    `datetime-local` input, value toggle, Save / Cancel.
-  - **Delete** button → `window.confirm("Delete this event?")`.
-- After any mutation, re-render list and (lazily) invalidate the grid.
+- Each row: formatted timestamp, value badge, bucket label, Edit, Delete
+  (with `window.confirm`).
+- After any mutation, re-render.
 
 ### Grid view (`#/grid`)
 
-- 7-column × 4-row HTML `<table>`. Column headers Sun–Sat; row headers the
-  block label (`00–09`, `09–12`, `12–17`, `17–24`).
-- Each cell:
-  - Top line: `NN%` (or `—` if `n = 0`)
-  - Bottom line: `n = <count>`
-  - Background shaded via `hsl(<P * 120>, 70%, 85%)` so red→green hints at
-    P at a glance. Cells with `n = 0` are neutral gray.
+- 7×4 HTML `<table>`. Column headers Sun–Sat, row headers block labels.
+- Each cell: `NN%` top / `n = <count>` bottom; background shaded
+  `hsl(<P*120>, 70%, 85%)`; `n === 0` cells neutral gray with `—`.
 
-After any create/update/delete, the grid recomputes from a fresh
-`db.listEvents()` — in line with the PRD ("recompute on any create, update,
-or delete") and safe at personal-scale volumes.
+### Settings view (`#/settings`)
 
-## Performance
+- Fields: **Bot token** (password input), **Chat ID** (number input).
+- Buttons: **Test connection** (calls `getMe`), **Detect chat ID**
+  (reads the latest message addressed to the bot), **Sync now** (pull then
+  push), **Forget credentials**.
+- Shows the sync-status badge and the `deviceTag`.
 
-- Personal-scale volumes (thousands of rows, not millions). Full-table read
-  + in-memory aggregation is trivially fast and simpler than incremental
-  updates.
-- Live-mode tap: single prepared `INSERT`, no network, OPFS write is sub-ms.
-  Meets the PRD's "near-instant" requirement.
-- No pagination in the list view for v1; can revisit if row count exceeds
-  a few thousand.
+### Error state
+
+`db.init()` failure → `app.js` renders a full-screen error with the exact
+copy: *"This browser doesn't support local storage. Please use a current
+version of Chrome, Firefox, or Brave."* No view chrome is mounted; no
+writes can succeed.
+
+## PWA manifest
+
+`/manifest.webmanifest` declares `name`, `short_name`, `start_url: "./"`,
+`display: "standalone"`, a `theme_color` matching the CSS palette, and a
+single `assets/icon.svg` icon with `purpose: "any maskable"`. No service
+worker in v1; IndexedDB already handles durable offline storage for our
+use-case and a service worker adds cache-invalidation headaches.
 
 ## Testing
 
-Run with `node --test test/`.
+Run with `node --test 'test/*.test.js'` (invoked via `npm test`; Node 22
+requires the glob).
 
 ### `aggregate.test.js`
 
@@ -221,20 +276,31 @@ Run with `node --test test/`.
 
 ### `db.test.js`
 
-Exercises the SQL directly. `sqlite-wasm` can run headless in Node but its
-OPFS path doesn't apply there; for test simplicity we use `better-sqlite3`
-with the same DDL and queries as a dev-only dependency. The production app
-does not ship `better-sqlite3` — there's no bundler, so only files
-referenced from `index.html` reach the browser.
-
-Covered scenarios:
+Exercises the real `db.js` module on top of `fake-indexeddb/auto`. Covered:
 
 1. Fresh DB: `listEvents()` returns `[]`.
-2. `insertEvent` → `listEvents()` returns the row with correct fields.
-3. `updateEvent` modifies both timestamp and value.
-4. `deleteEvent` removes the row; subsequent `listEvents()` omits it.
-5. Ordering: three inserts at different timestamps → `listEvents()` returns
-   them in descending timestamp order.
+2. `insertEvent` returns an id; row retrievable with `value === 1`.
+3. `insertEvent(..., false)` persists as `value === 0`.
+4. `updateEvent` modifies both timestamp and value.
+5. `deleteEvent` removes the row.
+6. Ordering: three inserts → `listEvents()` returns descending timestamp.
+7. Tie-breaker: same timestamp → id descending.
+8. `exportAll()` returns the same shape as `listEvents()`.
+9. `replaceAll(events)` wipes and repopulates atomically.
+10. `getSetting` / `setSetting` / `deleteSetting` round-trip a value.
+
+### `sync.test.js`
+
+- `pushSnapshot` builds a `FormData` with `chat_id`, `document`
+  (JSON blob), and a caption starting with `eventtracker-`. Stubbed
+  `fetch` captures the request and asserts.
+- `mergeSnapshots`:
+  - Remote-only ids are inserted.
+  - Id present both sides with identical payload is not counted as updated.
+  - Id present both sides, remote newer → remote wins.
+  - Id present both sides, local newer → local wins.
+  - Id present both sides, equal timestamps → remote wins.
+  - Local-only ids are preserved.
 
 ## Out of scope
 
@@ -246,7 +312,9 @@ Mirrors the PRD for locality:
 - User-defined blocks
 - Forecasting / prediction
 - Cross-user aggregation
-- Server / sync
+
+(Server / sync is no longer out of scope — the optional Telegram sync
+described above is in scope. Multi-user aggregation remains out.)
 
 ## Open questions
 

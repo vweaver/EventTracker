@@ -7,8 +7,9 @@ specs already exist in this repo:
 - [`PRD.md`](./PRD.md) — product spec (binary event logging, 28-bucket
   aggregation grid). This is the source of truth for *what* to build.
 - [`TECH_SPEC.md`](./TECH_SPEC.md) — implementation constraints (no build
-  step, plain HTML + ES modules, sqlite-wasm + OPFS, `node:test` for unit
-  tests). This is the source of truth for *how* to build it.
+  step, plain HTML + ES modules, IndexedDB storage, optional Telegram sync,
+  `node:test` for unit tests). This is the source of truth for *how* to
+  build it.
 
 The agents below do **not** re-invent scope — they operate inside the
 envelope defined by those two docs.
@@ -82,8 +83,8 @@ SLICING GUIDELINES:
   test/aggregate.test.js, test/db.test.js.
 
 SUGGESTED SLICE SHAPE:
-1. Scaffolding + vendored sqlite-wasm + `db.init()` opens an OPFS DB
-   and runs DDL. Test: db.test.js asserts empty listEvents().
+1. Scaffolding + `db.init()` opens IndexedDB and creates the events
+   store + by_timestamp index. Test: db.test.js asserts empty listEvents().
 2. CRUD in db.js (insert/update/delete/list). Test: db.test.js covers
    insert→list, update, delete, ordering.
 3. Pure aggregation in aggregate.js (bucketOf + aggregate).
@@ -93,7 +94,9 @@ SUGGESTED SLICE SHAPE:
 6. List view (reverse-chron, edit inline, delete with confirm).
 7. Grid view (7×4 table, % + n, shaded cells, unavailable = "—").
 8. Hash routing + bottom tab bar + mobile-first styling polish.
-9. Error state for browsers without OPFS.
+9. Error state for browsers where IndexedDB is unavailable.
+10. Settings view + Telegram sync (sync.js, push/pull/merge).
+11. PWA manifest.
 
 ACCEPTANCE CRITERIA format per slice:
 - "Given X, when Y, then Z" statements, concrete enough for the
@@ -103,8 +106,9 @@ ACCEPTANCE CRITERIA format per slice:
 DO NOT:
 - Add features not in PRD.md (no rolling windows, timezones, multiple
   event types, etc. — the PRD's Out of Scope is absolute).
-- Redesign the tech stack. It's plain HTML + ES modules + sqlite-wasm
-  + OPFS + node:test. No React, no bundler, no FastAPI, no backend.
+- Redesign the tech stack. It's plain HTML + ES modules + IndexedDB +
+  node:test. No React, no bundler, no FastAPI, no backend. Telegram
+  sync is a direct browser-to-api.telegram.org fetch; no proxy.
 - Specify implementation details already covered in TECH_SPEC.md
   (schema, CRUD signatures, bucket mapping). Reference it instead.
 ```
@@ -121,14 +125,16 @@ completed slice.
 STACK (fixed by TECH_SPEC.md — do not change):
 - Frontend: plain HTML + CSS + ES modules. NO bundler, NO TypeScript
   compile, NO React, NO framework.
-- Storage: @sqlite.org/sqlite-wasm with the opfs-sahpool VFS
-  (NOT the default OPFS VFS — we deploy to GitHub Pages, which can't
-  set COOP/COEP headers, so the SharedArrayBuffer-based VFS would
-  fail). Vendored under vendor/sqlite-wasm/ at a pinned version.
-  See TECH_SPEC.md "Deployment & VFS choice".
-- Testing: node --test against test/*.test.js. better-sqlite3 allowed
-  as a dev-only dependency for db.test.js (not shipped to the browser
-  since there's no bundler).
+- Storage: IndexedDB via a tiny hand-rolled promise wrapper around
+  `indexedDB.open('eventtracker', 1)`. Two object stores: `events`
+  (keyPath `id`, autoIncrement, index `by_timestamp`) and `settings`
+  (keyPath `key`). No third-party storage lib (no idb, no Dexie).
+- Sync (optional): direct `fetch` from the browser to
+  `https://api.telegram.org/bot<TOKEN>/...`. No proxy, no backend.
+  Credentials live in the `settings` store; snapshots never contain them.
+- Testing: node --test against test/*.test.js. `fake-indexeddb` is the
+  only dev dependency; `db.test.js` imports the real `db.js` on top of
+  `fake-indexeddb/auto`. `sync.test.js` stubs `fetch`.
 - No backend. No server code. The app is served as static files.
 
 INPUTS:
@@ -160,14 +166,18 @@ showcase. Aim for "well-crafted personal utility," not "gallery piece."
   no "✨ AI" badges. This app has no AI features.
 
 DATA/LOGIC QUALITY:
-- db.js owns all SQL. app.js owns all DOM. aggregate.js is pure.
+- db.js owns all storage. app.js owns all DOM. aggregate.js is pure.
+  sync.js is pure network/data — no DOM, no IDB state of its own.
   No cross-contamination.
-- Handle the OPFS-unsupported case with a visible error message, per
-  TECH_SPEC.md. Do NOT silently fall back to in-memory storage — data
-  loss without warning would violate the PRD.
+- Handle the IndexedDB-unsupported case with a visible error message,
+  per TECH_SPEC.md. Do NOT silently fall back to in-memory storage —
+  data loss without warning would violate the PRD.
 - Bucket boundaries are half-open [start, end), exactly as the PRD
   specifies. Re-verify against TECH_SPEC.md's Block table before
   writing bucketOf.
+- The Telegram bot token and chat ID live ONLY in the `settings`
+  object store. They must never be written into `events`, printed to
+  the console, or included in a pushed snapshot.
 
 AI INTEGRATION:
 There is none. PRD Out of Scope. Do not add any.
@@ -212,18 +222,19 @@ TESTING PROCESS:
    `curl -sSL -w '\n---\nstatus: %{http_code}\n'`.
    - If the status is not 200, or the body does not contain the
      expected markers (`<title>EventTracker</title>`, a reference to
-     `./app.js`, and a reference to `./vendor/sqlite-wasm/`), that is
-     an **automatic FAIL for Spec Conformance** regardless of how the
-     local build looks. A green local test run with a broken public
-     deploy is worthless.
+     `./app.js`, and a `<link rel="manifest">` tag pointing at
+     `./manifest.webmanifest`), that is an **automatic FAIL for
+     Spec Conformance** regardless of how the local build looks.
+   - The served HTML MUST NOT reference `vendor/sqlite-wasm`, `sql.js`,
+     or `schema.sql` — those were removed in the IndexedDB pivot.
    - If the fetch itself is blocked by the sandbox (e.g. "Host not in
      allowlist"), record the verdict as **BLOCKED — deploy
      unverifiable**, do not issue a PASS, and list the blocker
      first in the report. Ask the orchestrator to verify the URL
      externally before the round can close.
    - If the fetch succeeds, also fetch `./app.js`,
-     `./vendor/sqlite-wasm/jswasm/sqlite3.mjs`, and one other critical
-     asset to confirm they are served (not just `index.html`).
+     `./db.js`, `./sync.js`, and `./manifest.webmanifest` to confirm
+     they are served (not just `index.html`).
 4. Serve the app locally (`python3 -m http.server 8000` from the repo
    root) and open it in a Chromium Playwright session at mobile
    viewport (e.g. iPhone 14 preset). All testing is mobile-first.
@@ -243,9 +254,16 @@ TESTING PROCESS:
    - First load with empty DB: grid renders all 28 cells with "—".
    - Event at exactly 09:00:00 → block 1 (09–12), not block 0.
    - Event at 23:59:59 Saturday → (Sat, block 3).
-   - Refresh after every CRUD op — OPFS persistence must hold.
-   - Browser without OPFS (simulate by stubbing) → visible error,
-     not a silent fallback.
+   - Refresh after every CRUD op — IndexedDB persistence must hold.
+   - Browser without IndexedDB (simulate by stubbing) → visible
+     error, not a silent fallback.
+   - Settings view with credentials blank: Sync now is a no-op and
+     does NOT make a network call.
+   - Settings view with credentials set: stub `fetch` and confirm
+     `pushSnapshot` builds a multipart request whose body is the
+     events JSON and whose caption starts with `eventtracker-`.
+     Confirm the bot token NEVER appears inside the pushed document
+     bytes or the caption.
 7. Check the console for errors across all interactions. Any
    uncaught error = deduction.
 8. Visual check at mobile viewport:
