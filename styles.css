@@ -262,7 +262,7 @@ details[open] .backdate-chevron { transform: rotate(180deg); }
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   background: var(--card);
   border-top: 1px solid var(--line-strong);
   padding-bottom: env(safe-area-inset-bottom);
@@ -498,6 +498,74 @@ details[open] .backdate-chevron { transform: rotate(180deg); }
   letter-spacing: 0.02em;
 }
 .grid-cell--empty .grid-n { color: var(--muted); }
+
+/* Settings view */
+.view--settings { gap: 0.9rem; }
+
+.settings-status {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.95rem;
+  box-shadow: var(--shadow);
+  font-variant-numeric: tabular-nums;
+}
+.settings-status--ok {
+  border-color: color-mix(in srgb, var(--pos) 30%, var(--line));
+  background: color-mix(in srgb, var(--pos-soft) 80%, var(--card));
+  color: var(--pos);
+}
+.settings-status--error {
+  border-color: color-mix(in srgb, var(--neg) 30%, var(--line));
+  background: color-mix(in srgb, var(--neg-soft) 80%, var(--card));
+  color: var(--neg);
+}
+.settings-status--syncing {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.settings-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.settings-help a { color: var(--accent); }
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.settings-actions .pill {
+  flex: 1 1 calc(50% - 0.4rem);
+  min-height: 48px;
+}
+.pill--danger {
+  color: var(--neg);
+  border-color: color-mix(in srgb, var(--neg) 30%, var(--line));
+  background: color-mix(in srgb, var(--neg-soft) 30%, var(--card));
+}
+
+.settings-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  padding-top: 0.2rem;
+  border-top: 1px dashed var(--line);
+}
 
 /* Error */
 .error-state {
